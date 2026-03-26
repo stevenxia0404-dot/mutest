@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>东航乘务实时答题助手</title>
+    <script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2/dist/fuse.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #000; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+        #videoContainer { position: relative; width: 100vw; height: 100vh; }
+        video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+        .scan-line { position: absolute; width: 100%; height: 2px; background: #00ff00; opacity: 0.6; animation: scan 3s linear infinite; pointer-events: none; z-index: 10; box-shadow: 0 0 4px #00ff00; }
+        @keyframes scan { 0% { top: 0; } 50% { top: 100%; } 100% { top: 0; } }
+        
+        /* 顶部识别文本浮层 */
+        #topOverlay { position: absolute; top: 10px; left: 10px; right: 10px; background: rgba(0,0,0,0.75); color: #fff; padding: 12px; border-radius: 8px; font-size: 13px; max-height: 25vh; overflow-y: auto; backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.1); z-index: 20; }
+        #recognizedText { color: #ddd; line-height: 1.4; }
+        #matchInfo { margin-top: 8px; font-size: 11px; color: #aaa; }
+        
+        /* 底部答案浮层 - 巨大醒目 */
+        #answerBar { position: absolute; bottom: 50px; left: 15px; right: 15px; background: #ff0000; color: white; padding: 25px 15px; border-radius: 12px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.6); display: none; z-index: 30; border: 2px solid rgba(255,255,255,0.3); }
+        #answerType { font-size: 13px; opacity: 0.9; margin-bottom: 6px; font-weight: 500; letter-spacing: 1px; }
+        #answerText { font-size: 32px; font-weight: bold; line-height: 1.2; text-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+        
+        /* 配置面板 */
+        #configPanel { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.4); z-index: 1000; width: 90%; max-width: 380px; }
+        h3 { margin: 0 0 20px 0; text-align: center; color: #333; font-size: 20px; }
+        .input-group { margin-bottom: 18px; }
+        input { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; -webkit-appearance: none; }
+        button { width: 100%; padding: 14px; background: #007bff; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.3s; }
+        button:active { transform: scale(0.98); background: #0056b3; }
+        .tip { font-size: 12px; color: #666; margin-top: 15px; line-height: 1.5; }
+        
+        /* 状态提示 */
+        #status { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 16px; text-align: center; z-index: 15; pointer-events: none; text-shadow: 0 2px 4px rgba(0,0,0,0.8); }
+        
+        /* 网格线辅助对准 */
+        .grid-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; background: linear-gradient(to right, rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.1) 1px, transparent 1px); background-size: 33% 33%; opacity: 0.3; }
+    </style>
+</head>
+<body>
+    <div id="videoContainer">
+        <video id="video" autoplay playsinline muted></video>
+        <div class="grid-overlay"></div>
+        <div class="scan-line"></div>
+        <div id="status">正在启动摄像头...</div>
+        
+        <div id="topOverlay">
+            <div id="recognizedText">等待识别...</div>
+            <div id="matchInfo">请对准题目文字</div>
+        </div>
+        
+        <div id="answerBar">
+            <div id="answerType">单选题</div>
+            <div id="answerText">答案加载中...</div>
+        </div>
+    </div>
+
+    <div id="configPanel">
+        <h3>🔑 百度OCR配置</h3>
+        <div class="input-group">
+            <input type="text" id="apiKey" placeholder="输入百度API Key">
+        </div>
+        <div class="input-group">
+            <input type="text" id="secretKey" placeholder="输入百度Secret Key">
+        </div>
+        <button onclick="initApp()">启动实时答题系统</button>
+        <div class="tip">
+            💡 首次使用需申请百度API Key（免费）：<br>
+            1. 访问 ai.baidu.com<br>
+            2. 领取"通用文字识别（高精度版）"<br>
+            3. 复制Key和Secret填入上方<br>
+            4. 每日免费额度50000次，完全够用
+        </div>
+    </div>
+
+    <canvas id="canvas" style="display:none;"></canvas>
+
+<script>
+// 内置高频题库（约50道，完整357道请替换为data.json）
+let questions = [
+    {"id":1,"type":"单选题","question":"乘务员应携带的证件、资料及装具以下叙述不正确的是：()","options":["客舱情景话术集(电子版/安装在个人便携式电子设备中)","乘务员手册","登机证","体检合格证"],"answer":"客舱情景话术集(电子版/安装在个人便携式电子设备中)","source":"第二期"},
+    {"id":2,"type":"单选题","question":"() 负责乘务组的管理,并接受机长的指导。","options":["客舱经理/乘务长","安全员","机长","副驾驶"],"answer":"客舱经理/乘务长","source":"第二期"},
+    {"id":3,"type":"单选题","question":"旅客登机/离机前，乘务员应对廊桥/客梯车进行检查，如发现表面有冰、雪、霜等，为防止人员滑倒，应通知（）处理后方可允许旅客上下飞机。","options":["地面人员","机长","乘务长","安全员"],"answer":"地面人员","source":"第二期"},
+    {"id":4,"type":"单选题","question":"如果起飞后（）分钟且飞行平稳，驾驶舱未关闭安全带信号灯或未与客舱联络告知以上内容，客舱经理/乘务长应主动与驾驶舱联络以获得相关信息。","options":["20分钟","30分钟","40分钟","60分钟"],"answer":"20分钟","source":"第二期"},
+    {"id":5,"type":"单选题","question":"在任一个连续的12个日历月内，在批准的可服务的一种机型上，至少飞行（）个航段，方可在此机型上继续担任乘务员。","options":["2","3","4","5"],"answer":"2","source":"第一期"},
+    {"id":6,"type":"单选题","question":"乘务员在执行飞行任务或主备份前的144小时内，公司应为其安排一个至少连续（ ）小时的休息期。","options":["48","36","24","72"],"answer":"48","source":"第一期"},
+    {"id":7,"type":"单选题","question":"无人押运的遣返旅客，同一架飞机上原则上不超过（）人。","options":["6","5","3","2"],"answer":"6","source":"第一期"},
+    {"id":8,"type":"单选题","question":"每位额外占座旅客发（）张登机牌，按（）人计数。","options":["1，1","1，2","2，1","2，2"],"answer":"1，1","source":"第一期"},
+    {"id":9,"type":"单选题","question":"如军民合用机场有关闭遮光板等特殊要求，飞抵军民合用机场下降前，广播告知旅客，关闭遮光板并保持关闭直至（）（有乘务员值守地板高度应急出口的遮光板除外）。","options":["旅客全部离机止","飞机落地止","舱门打开止","起飞止"],"answer":"旅客全部离机止","source":"第一期"},
+    {"id":10,"type":"单选题","question":"如果航班延误超过（）小时，乘务员应重新进行直接准备。","options":["24","12","48","72"],"answer":"24","source":"第一期"},
+    {"id":11,"type":"判断题","question":"飞行中若发生或预计发生轻度或中度颠簸时，飞行机组以接通一次“系好安全带”信号灯的方式通知客舱人员。","answer":"错误","source":"第一期"},
+    {"id":12,"type":"判断题","question":"乘务员离开或进入驾驶舱， 在打开门之前， 应使用观察孔或电子 监控装置，检查驾驶舱门外没有无关人员尾随；","answer":"正确","source":"第一期"},
+    {"id":13,"type":"判断题","question":"飞机在地面停留期间需要使用餐车和服务小推车时，不应阻挡应急出口，停靠在机门处的餐车应垂直于机门放置。","answer":"正确","source":"第一期"},
+    {"id":14,"type":"单选题","question":"飞行前准备包括预先准备和直接准备。预先准备应在航班起飞前（）小时至起飞前（）小时之间完成。","options":["48；12","24；12","48；24","72；48"],"answer":"48；12","source":"第三期"},
+    {"id":15,"type":"单选题","question":"每次飞行前，机长负责召集（）参加机组协同准备会。如无法在指定地点实施协同准备的，机长会在飞机上，并于（）召集机组成员完成协同准备。","options":["全体机组成员；旅客登机前","全体机组成员；起飞前","乘务组；旅客登机前","乘务组；起飞前"],"answer":"全体机组成员；旅客登机前","source":"第三期"},
+    {"id":16,"type":"单选题","question":"获得机长授权的客舱机组成员应检查加入机组人员的有效身份证件(空勤登机证或身份证或护照)、飞行任务书，核实无误后方可允许其登机。","options":["获得机长授权的客舱机组成员","机长","乘务长","安全员"],"answer":"获得机长授权的客舱机组成员","source":"第三期"},
+    {"id":17,"type":"单选题","question":"平飞期间，除飞机颠簸时外，乘务员应适时进行安全巡视检查。这些检查可在服务程序开展时进行，未开展服务程序期间，应至少每（）分钟进行1次。","options":["20","30","15","10"],"answer":"20","source":"第三期"},
+    {"id":18,"type":"单选题","question":"飞机初次移动(推出/滑出)时，飞行机组会通知客舱，例如接通（）次安全带灯或广播；获得进跑道指令后，飞行机组会立即通知客舱即将起飞，例如连续次接通安全带灯（）次或广播。","options":["1；2","2；1","1；1","2；2"],"answer":"1；2","source":"第三期"},
+    {"id":19,"type":"单选题","question":"在预计着陆前（）或飞机下降通过（）(以先到达为准)前飞行机组会打开安全带信号灯，并通过 PA“客舱请完成下降准备，Cabin be ready for descent”作为提示口令，提醒客舱机组应及时完成落地前客舱安全检查并归位入座。","options":["20分钟；20000英尺","30分钟；10000英尺","40分钟；15000英尺","20分钟；10000英尺"],"answer":"20分钟；20000英尺","source":"第三期"},
+    {"id":20,"type":"单选题","question":"直接准备会中，客舱经理/乘务长要检查并确保组员所携带的证件、资料及装具齐全、有效；公司发放的IPAD电量不低于（）。","options":["80%","90%","70%","60%"],"answer":"80%","source":"第三期"},
+    {"id":21,"type":"单选题","question":"正常人的体温是相对恒定的，体温一般以口腔温度为基准，正常范围是（）至（）摄氏度。","options":["36.2-37.2","36.0-37.0","36.5-37.5","36.8-37.8"],"answer":"36.2-37.2","source":"第二期"},
+    {"id":22,"type":"单选题","question":"一旦使用机上卫生防疫包，客舱经理/乘务长应填写（）并上交。","options":["《紧急医学事件报告单》","《机上事件报告单》","《医疗事故报告单》","《卫生处理报告单》"],"answer":"《紧急医学事件报告单》","source":"第二期"},
+    {"id":23,"type":"单选题","question":"心搏骤停的主要临床表现为意识突然丧失，心音及大动脉搏动消失。心搏骤停若延迟至（）分钟以上，则复苏成功率极低。","options":["6","4","8","10"],"answer":"6","source":"第二期"},
+    {"id":24,"type":"单选题","question":"胸外心脏挤压成人的急救，每分钟按压频率为（）。","options":["100至120 次","80至100 次","120至140 次","60至80 次"],"answer":"100至120 次","source":"第二期"},
+    {"id":25,"type":"单选题","question":"HALON 或HALON 等效灭火瓶使用最佳距离为：()","options":["1.5-2 米","2-2.5 米","0.5-1 米","3-4 米"],"answer":"1.5-2 米","source":"第二期"},
+    {"id":26,"type":"判断题","question":"客舱释压后，飞机已经平稳飞行。（）应检查飞行机组，按需提供帮助。","answer":"距离驾驶舱最近的客舱机组","source":"第一期"},
+    {"id":27,"type":"单选题","question":"水上迫降飞机迅速下沉时，应当：","options":["拉出断开手柄，将滑梯/救生筏与飞机脱开，断割系留绳使滑梯/救生筏脱离飞机，让援助者先跳入水中，并将滑梯/救生筏推离飞机。","迅速让所有旅客登上救生筏后，拉出断开手柄，割断系留绳，将救生筏划至远离飞机的安全地带。","立即打开所有出口","等待机长指令"],"answer":"拉出断开手柄，将滑梯/救生筏与飞机脱开，断割系留绳使滑梯/救生筏脱离飞机，让援助者先跳入水中，并将滑梯/救生筏推离飞机。","source":"第一期"},
+    {"id":28,"type":"判断题","question":"野外求生时水时应定量饮用，第1天尽量不要饮水，第2至4天，每天最多不超过400ml，第5天后，根据天气每天控制在55至225ml。","answer":"正确","source":"第一期"},
+    {"id":29,"type":"判断题","question":"沙漠中求生时，应全身着衣，白天不要脱下衣服，否则会增加流汗，衣服应宽松。","answer":"正确","source":"第一期"},
+    {"id":30,"type":"判断题","question":"每次起飞和着陆前，乘务员应做静默三十秒五项(BPJCE)。其中判断情况Judgement是指飞机的状态(是否处于导致应急撤离的情况）及机外是否安全(火、烟雾、障碍物、水、油等影响)，机门是否失效。","answer":"正确","source":"第一期"}
+];
+
+let fuse;
+let accessToken = '';
+let isProcessing = false;
+let lastAnswerTime = 0;
+const RECOGNITION_INTERVAL = 600; // 600ms识别一次，平衡速度与准确率
+
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const recognizedTextDiv = document.getElementById('recognizedText');
+const matchInfoDiv = document.getElementById('matchInfo');
+const answerBar = document.getElementById('answerBar');
+const answerText = document.getElementById('answerText');
+const answerType = document.getElementById('answerType');
+const statusDiv = document.getElementById('status');
+
+// 初始化模糊搜索
+function initFuse() {
+    fuse = new Fuse(questions, {
+        keys: ['question'],
+        threshold: 0.35, // 0-1，越小越严格，0.35适合OCR误差
+        includeScore: true,
+        minMatchCharLength: 6,
+        distance: 100
+    });
+    console.log(`题库加载完成，共${questions.length}道题`);
+}
+
+// 尝试加载外部data.json
+async function loadExternalData() {
+    try {
+        const response = await fetch('data.json?v=' + Date.now());
+        if (response.ok) {
+            const externalData = await response.json();
+            if (Array.isArray(externalData) && externalData.length > 20) {
+                questions = externalData;
+                initFuse();
+                console.log(`外部题库加载成功：${questions.length}道题`);
+                return true;
+            }
+        }
+    } catch (e) {
+        console.log('使用内置题库（如需加载完整357道题，请将data.json放在同目录）');
+    }
+    initFuse();
+    return false;
+}
+
+// 初始化摄像头
+async function initCamera() {
+    try {
+        const constraints = {
+            video: {
+                facingMode: { ideal: "environment" }, // 优先后置摄像头
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+            },
+            audio: false
+        };
+        
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+        
+        video.onloadedmetadata = () => {
+            statusDiv.style.display = 'none';
+            document.getElementById('configPanel').style.display = 'none';
+            startRecognitionLoop();
+        };
+    } catch (err) {
+        alert('摄像头启动失败：' + err.message + '\n请确保：1.使用HTTPS或localhost；2.已授予摄像头权限；3.使用Chrome/Safari浏览器');
+        console.error(err);
+    }
+}
+
+// 获取百度Token
+async function getBaiduToken(apiKey, secretKey) {
+    const url = `https://aip.baidubce.com/oauth/2.0/token?grant_type=client_credentials&client_id=${apiKey}&client_secret=${secretKey}`;
+    try {
+        const response = await fetch(url, { method: 'POST' });
+        const data = await response.json();
+        if (data.access_token) {
+            accessToken = data.access_token;
+            localStorage.setItem('baidu_api_key', apiKey);
+            localStorage.setItem('baidu_secret_key', secretKey);
+            return true;
+        }
+        throw new Error(data.error_description || '获取Token失败');
+    } catch (err) {
+        alert('API配置错误：' + err.message);
+        return false;
+    }
+}
+
+// OCR识别核心
+async function recognizeText(imageBase64) {
+    if (!accessToken || isProcessing) return null;
+    isProcessing = true;
+    
+    try {
+        const url = `https://aip.baidubce.com/rest/2.0/ocr/v1/accurate_basic?access_token=${accessToken}`;
+        
+        // 使用FormData避免URL过长
+        const formData = new FormData();
+        formData.append('image', imageBase64);
+        formData.append('detect_direction', 'true');
+        formData.append('probability', 'true');
+        
+        const response = await fetch(url, {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.words_result && data.words_result.length > 0) {
+            // 合并所有识别文本
+            const text = data.words_result.map(w => w.words).join('');
+            return text;
+        }
+        return null;
+    } catch (err) {
+        console.error('OCR请求失败:', err);
+        return null;
+    } finally {
+        setTimeout(() => { isProcessing = false; }, 200); // 防止请求过于频繁
+    }
+}
+
+// 查找答案
+function findAnswer(text) {
+    if (!fuse || !text || text.length < 8) return; // 太短不处理
+    
+    const results = fuse.search(text);
+    
+    if (results.length > 0 && results[0].score < 0.4) { // 匹配度阈值
+        const item = results[0].item;
+        const score = ((1 - results[0].score) * 100).toFixed(0);
+        
+        // 更新UI
+        recognizedTextDiv.textContent = text.substring(0, 50) + (text.length > 50 ? '...' : '');
+        matchInfoDiv.textContent = `匹配度: ${score}% | 来源: ${item.source} | ID:${item.id}`;
+        
+        // 显示答案
+        answerBar.style.display = 'block';
+        answerType.textContent = item.type;
+        
+        if (item.type === '判断题') {
+            answerText.textContent = item.answer;
+            answerBar.style.background = item.answer === '正确' ? '#28a745' : '#dc3545'; // 绿/红
+        } else {
+            answerText.textContent = item.answer;
+            answerBar.style.background = '#dc3545'; // 红色强调
+        }
+        
+        lastAnswerTime = Date.now();
+        
+        // 5秒后隐藏答案（避免遮挡下一题）
+        setTimeout(() => {
+            if (Date.now() - lastAnswerTime >= 4900) {
+                answerBar.style.display = 'none';
+            }
+        }, 5000);
+        
+        return true;
+    }
+    return false;
+}
+
+// 识别循环
+function startRecognitionLoop() {
+    setInterval(async () => {
+        if (video.readyState === video.HAVE_ENOUGH_DATA && !isProcessing) {
+            // 绘制视频帧到Canvas
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // 压缩为JPEG（0.6质量平衡速度与清晰度）
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+            const base64 = dataUrl.split(',')[1];
+            
+            // 执行OCR
+            const text = await recognizeText(base64);
+            if (text) {
+                findAnswer(text);
+            }
+        }
+    }, RECOGNITION_INTERVAL);
+}
+
+// 初始化入口
+async function initApp() {
+    const apiKey = document.getElementById('apiKey').value.trim();
+    const secretKey = document.getElementById('secretKey').value.trim();
+    
+    if (!apiKey || !secretKey) {
+        alert('请输入完整的API Key和Secret Key');
+        return;
+    }
+    
+    statusDiv.textContent = '正在连接百度OCR...';
+    statusDiv.style.display = 'block';
+    
+    const tokenOk = await getBaiduToken(apiKey, secretKey);
+    if (tokenOk) {
+        await loadExternalData(); // 加载题库
+        initCamera(); // 启动摄像头
+    }
+}
+
+// 页面加载时恢复缓存的Key
+window.addEventListener('load', () => {
+    const cachedKey = localStorage.getItem('baidu_api_key');
+    const cachedSecret = localStorage.getItem('baidu_secret_key');
+    if (cachedKey) document.getElementById('apiKey').value = cachedKey;
+    if (cachedSecret) document.getElementById('secretKey').value = cachedSecret;
+});
+</script>
+</body>
+</html>
