@@ -13,30 +13,24 @@
         .scan-line { position: absolute; width: 100%; height: 2px; background: #00ff00; opacity: 0.6; animation: scan 3s linear infinite; pointer-events: none; z-index: 10; box-shadow: 0 0 4px #00ff00; }
         @keyframes scan { 0% { top: 0; } 50% { top: 100%; } 100% { top: 0; } }
         
-        /* 顶部识别文本浮层 */
         #topOverlay { position: absolute; top: 10px; left: 10px; right: 10px; background: rgba(0,0,0,0.75); color: #fff; padding: 12px; border-radius: 8px; font-size: 13px; max-height: 25vh; overflow-y: auto; backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.1); z-index: 20; }
         #recognizedText { color: #ddd; line-height: 1.4; }
         #matchInfo { margin-top: 8px; font-size: 11px; color: #aaa; }
         
-        /* 底部答案浮层 - 巨大醒目 */
         #answerBar { position: absolute; bottom: 50px; left: 15px; right: 15px; background: #ff0000; color: white; padding: 25px 15px; border-radius: 12px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.6); display: none; z-index: 30; border: 2px solid rgba(255,255,255,0.3); }
         #answerType { font-size: 13px; opacity: 0.9; margin-bottom: 6px; font-weight: 500; letter-spacing: 1px; }
         #answerText { font-size: 32px; font-weight: bold; line-height: 1.2; text-shadow: 0 2px 4px rgba(0,0,0,0.3); }
         
-        /* 配置面板 */
-        #configPanel { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.4); z-index: 1000; width: 90%; max-width: 380px; }
-        h3 { margin: 0 0 20px 0; text-align: center; color: #333; font-size: 20px; }
-        .input-group { margin-bottom: 18px; }
-        input { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; -webkit-appearance: none; }
-        button { width: 100%; padding: 14px; background: #007bff; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.3s; }
+        #configPanel { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.4); z-index: 1000; width: 90%; max-width: 380px; text-align: center; }
+        h3 { margin: 0 0 20px 0; color: #333; font-size: 20px; }
+        button { width: 100%; padding: 14px; background: #007bff; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.3s; margin-top: 10px; }
         button:active { transform: scale(0.98); background: #0056b3; }
         .tip { font-size: 12px; color: #666; margin-top: 15px; line-height: 1.5; }
         
-        /* 状态提示 */
         #status { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 16px; text-align: center; z-index: 15; pointer-events: none; text-shadow: 0 2px 4px rgba(0,0,0,0.8); }
-        
-        /* 网格线辅助对准 */
         .grid-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; background: linear-gradient(to right, rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.1) 1px, transparent 1px); background-size: 33% 33%; opacity: 0.3; }
+        
+        .highlight { background: yellow; color: red; font-weight: bold; padding: 2px 5px; border-radius: 3px; }
     </style>
 </head>
 <body>
@@ -58,27 +52,26 @@
     </div>
 
     <div id="configPanel">
-        <h3>🔑 百度OCR配置</h3>
-        <div class="input-group">
-            <input type="text" id="apiKey" placeholder="输入百度API Key">
-        </div>
-        <div class="input-group">
-            <input type="text" id="secretKey" placeholder="输入百度Secret Key">
-        </div>
-        <button onclick="initApp()">启动实时答题系统</button>
+        <h3>🔍 东航乘务实时答题助手</h3>
+        <p style="color: #666; margin-bottom: 20px;">357题完整版 | Cloudflare 安全部署</p>
+        <button onclick="initApp()">启动摄像头开始识别</button>
         <div class="tip">
-            💡 首次使用需申请百度API Key（免费）：<br>
-            1. 访问 ai.baidu.com<br>
-            2. 领取"通用文字识别（高精度版）"<br>
-            3. 复制Key和Secret填入上方<br>
-            4. 每日免费额度50000次，完全够用
+            首次使用请允许摄像头权限<br>
+            请对准纸质题目或屏幕文字
         </div>
     </div>
 
     <canvas id="canvas" style="display:none;"></canvas>
 
 <script>
-// 内置高频题库（约50道，完整357道请替换为data.json）
+// ==========================================
+// ⚠️ 唯一需要修改的地方（第28行）
+// 把下面的地址换成你的 Worker 地址
+// 示例：https://ce-ocr-proxy.liming123.workers.dev
+// ==========================================
+const WORKER_URL = 'https://plain-silence-4402.stevenxia0404.workers.dev/'; 
+
+// 内置高频题库（25道，data.json加载失败时作为备用）
 let questions = [
     {"id":1,"type":"单选题","question":"乘务员应携带的证件、资料及装具以下叙述不正确的是：()","options":["客舱情景话术集(电子版/安装在个人便携式电子设备中)","乘务员手册","登机证","体检合格证"],"answer":"客舱情景话术集(电子版/安装在个人便携式电子设备中)","source":"第二期"},
     {"id":2,"type":"单选题","question":"() 负责乘务组的管理,并接受机长的指导。","options":["客舱经理/乘务长","安全员","机长","副驾驶"],"answer":"客舱经理/乘务长","source":"第二期"},
@@ -104,19 +97,13 @@ let questions = [
     {"id":22,"type":"单选题","question":"一旦使用机上卫生防疫包，客舱经理/乘务长应填写（）并上交。","options":["《紧急医学事件报告单》","《机上事件报告单》","《医疗事故报告单》","《卫生处理报告单》"],"answer":"《紧急医学事件报告单》","source":"第二期"},
     {"id":23,"type":"单选题","question":"心搏骤停的主要临床表现为意识突然丧失，心音及大动脉搏动消失。心搏骤停若延迟至（）分钟以上，则复苏成功率极低。","options":["6","4","8","10"],"answer":"6","source":"第二期"},
     {"id":24,"type":"单选题","question":"胸外心脏挤压成人的急救，每分钟按压频率为（）。","options":["100至120 次","80至100 次","120至140 次","60至80 次"],"answer":"100至120 次","source":"第二期"},
-    {"id":25,"type":"单选题","question":"HALON 或HALON 等效灭火瓶使用最佳距离为：()","options":["1.5-2 米","2-2.5 米","0.5-1 米","3-4 米"],"answer":"1.5-2 米","source":"第二期"},
-    {"id":26,"type":"判断题","question":"客舱释压后，飞机已经平稳飞行。（）应检查飞行机组，按需提供帮助。","answer":"距离驾驶舱最近的客舱机组","source":"第一期"},
-    {"id":27,"type":"单选题","question":"水上迫降飞机迅速下沉时，应当：","options":["拉出断开手柄，将滑梯/救生筏与飞机脱开，断割系留绳使滑梯/救生筏脱离飞机，让援助者先跳入水中，并将滑梯/救生筏推离飞机。","迅速让所有旅客登上救生筏后，拉出断开手柄，割断系留绳，将救生筏划至远离飞机的安全地带。","立即打开所有出口","等待机长指令"],"answer":"拉出断开手柄，将滑梯/救生筏与飞机脱开，断割系留绳使滑梯/救生筏脱离飞机，让援助者先跳入水中，并将滑梯/救生筏推离飞机。","source":"第一期"},
-    {"id":28,"type":"判断题","question":"野外求生时水时应定量饮用，第1天尽量不要饮水，第2至4天，每天最多不超过400ml，第5天后，根据天气每天控制在55至225ml。","answer":"正确","source":"第一期"},
-    {"id":29,"type":"判断题","question":"沙漠中求生时，应全身着衣，白天不要脱下衣服，否则会增加流汗，衣服应宽松。","answer":"正确","source":"第一期"},
-    {"id":30,"type":"判断题","question":"每次起飞和着陆前，乘务员应做静默三十秒五项(BPJCE)。其中判断情况Judgement是指飞机的状态(是否处于导致应急撤离的情况）及机外是否安全(火、烟雾、障碍物、水、油等影响)，机门是否失效。","answer":"正确","source":"第一期"}
+    {"id":25,"type":"单选题","question":"HALON 或HALON 等效灭火瓶使用最佳距离为：()","options":["1.5-2 米","2-2.5 米","0.5-1 米","3-4 米"],"answer":"1.5-2 米","source":"第二期"}
 ];
 
 let fuse;
-let accessToken = '';
 let isProcessing = false;
 let lastAnswerTime = 0;
-const RECOGNITION_INTERVAL = 600; // 600ms识别一次，平衡速度与准确率
+const RECOGNITION_INTERVAL = 800;
 
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
@@ -132,7 +119,7 @@ const statusDiv = document.getElementById('status');
 function initFuse() {
     fuse = new Fuse(questions, {
         keys: ['question'],
-        threshold: 0.35, // 0-1，越小越严格，0.35适合OCR误差
+        threshold: 0.35,
         includeScore: true,
         minMatchCharLength: 6,
         distance: 100
@@ -140,13 +127,13 @@ function initFuse() {
     console.log(`题库加载完成，共${questions.length}道题`);
 }
 
-// 尝试加载外部data.json
+// 尝试加载外部 data.json
 async function loadExternalData() {
     try {
         const response = await fetch('data.json?v=' + Date.now());
         if (response.ok) {
             const externalData = await response.json();
-            if (Array.isArray(externalData) && externalData.length > 20) {
+            if (Array.isArray(externalData) && externalData.length > 50) {
                 questions = externalData;
                 initFuse();
                 console.log(`外部题库加载成功：${questions.length}道题`);
@@ -154,7 +141,7 @@ async function loadExternalData() {
             }
         }
     } catch (e) {
-        console.log('使用内置题库（如需加载完整357道题，请将data.json放在同目录）');
+        console.log('使用内置题库（25道题）。如需加载完整357道题，请将 data.json 放在网站根目录');
     }
     initFuse();
     return false;
@@ -165,7 +152,7 @@ async function initCamera() {
     try {
         const constraints = {
             video: {
-                facingMode: { ideal: "environment" }, // 优先后置摄像头
+                facingMode: { ideal: "environment" },
                 width: { ideal: 1280 },
                 height: { ideal: 720 }
             },
@@ -181,94 +168,76 @@ async function initCamera() {
             startRecognitionLoop();
         };
     } catch (err) {
-        alert('摄像头启动失败：' + err.message + '\n请确保：1.使用HTTPS或localhost；2.已授予摄像头权限；3.使用Chrome/Safari浏览器');
+        alert('摄像头启动失败：' + err.message + '\n请确保使用 HTTPS 并已授予摄像头权限');
         console.error(err);
     }
 }
 
-// 获取百度Token
-async function getBaiduToken(apiKey, secretKey) {
-    const url = `https://aip.baidubce.com/oauth/2.0/token?grant_type=client_credentials&client_id=${apiKey}&client_secret=${secretKey}`;
-    try {
-        const response = await fetch(url, { method: 'POST' });
-        const data = await response.json();
-        if (data.access_token) {
-            accessToken = data.access_token;
-            localStorage.setItem('baidu_api_key', apiKey);
-            localStorage.setItem('baidu_secret_key', secretKey);
-            return true;
-        }
-        throw new Error(data.error_description || '获取Token失败');
-    } catch (err) {
-        alert('API配置错误：' + err.message);
-        return false;
-    }
-}
-
-// OCR识别核心
+// 调用 Worker 进行 OCR 识别
 async function recognizeText(imageBase64) {
-    if (!accessToken || isProcessing) return null;
+    if (isProcessing) return null;
     isProcessing = true;
     
     try {
-        const url = `https://aip.baidubce.com/rest/2.0/ocr/v1/accurate_basic?access_token=${accessToken}`;
-        
-        // 使用FormData避免URL过长
-        const formData = new FormData();
-        formData.append('image', imageBase64);
-        formData.append('detect_direction', 'true');
-        formData.append('probability', 'true');
-        
-        const response = await fetch(url, {
+        const response = await fetch(WORKER_URL, {
             method: 'POST',
-            body: formData
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ image: imageBase64 })
         });
+        
+        if (!response.ok) {
+            throw new Error('Worker request failed: ' + response.status);
+        }
         
         const data = await response.json();
         
+        if (data.error) {
+            console.error('Worker returned error:', data.error);
+            return null;
+        }
+        
         if (data.words_result && data.words_result.length > 0) {
-            // 合并所有识别文本
             const text = data.words_result.map(w => w.words).join('');
             return text;
         }
         return null;
+        
     } catch (err) {
         console.error('OCR请求失败:', err);
         return null;
     } finally {
-        setTimeout(() => { isProcessing = false; }, 200); // 防止请求过于频繁
+        setTimeout(() => { isProcessing = false; }, 200);
     }
 }
 
 // 查找答案
 function findAnswer(text) {
-    if (!fuse || !text || text.length < 8) return; // 太短不处理
+    if (!fuse || !text || text.length < 8) return;
     
     const results = fuse.search(text);
     
-    if (results.length > 0 && results[0].score < 0.4) { // 匹配度阈值
+    if (results.length > 0 && results[0].score < 0.4) {
         const item = results[0].item;
         const score = ((1 - results[0].score) * 100).toFixed(0);
         
-        // 更新UI
         recognizedTextDiv.textContent = text.substring(0, 50) + (text.length > 50 ? '...' : '');
         matchInfoDiv.textContent = `匹配度: ${score}% | 来源: ${item.source} | ID:${item.id}`;
         
-        // 显示答案
         answerBar.style.display = 'block';
         answerType.textContent = item.type;
         
         if (item.type === '判断题') {
             answerText.textContent = item.answer;
-            answerBar.style.background = item.answer === '正确' ? '#28a745' : '#dc3545'; // 绿/红
+            answerBar.style.background = item.answer === '正确' ? '#28a745' : '#dc3545';
         } else {
             answerText.textContent = item.answer;
-            answerBar.style.background = '#dc3545'; // 红色强调
+            answerBar.style.background = '#dc3545';
         }
         
         lastAnswerTime = Date.now();
         
-        // 5秒后隐藏答案（避免遮挡下一题）
         setTimeout(() => {
             if (Date.now() - lastAnswerTime >= 4900) {
                 answerBar.style.display = 'none';
@@ -284,16 +253,13 @@ function findAnswer(text) {
 function startRecognitionLoop() {
     setInterval(async () => {
         if (video.readyState === video.HAVE_ENOUGH_DATA && !isProcessing) {
-            // 绘制视频帧到Canvas
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             
-            // 压缩为JPEG（0.6质量平衡速度与清晰度）
             const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
             const base64 = dataUrl.split(',')[1];
             
-            // 执行OCR
             const text = await recognizeText(base64);
             if (text) {
                 findAnswer(text);
@@ -304,31 +270,18 @@ function startRecognitionLoop() {
 
 // 初始化入口
 async function initApp() {
-    const apiKey = document.getElementById('apiKey').value.trim();
-    const secretKey = document.getElementById('secretKey').value.trim();
-    
-    if (!apiKey || !secretKey) {
-        alert('请输入完整的API Key和Secret Key');
+    // 检查 Worker 地址是否已修改
+    if (WORKER_URL.includes('你的Worker名称') || WORKER_URL === '') {
+        alert('请先修改第 28 行的 WORKER_URL！\n把它换成你的 Worker 地址，例如：https://ce-ocr-proxy.liming123.workers.dev');
         return;
     }
     
-    statusDiv.textContent = '正在连接百度OCR...';
+    statusDiv.textContent = '正在加载题库...';
     statusDiv.style.display = 'block';
     
-    const tokenOk = await getBaiduToken(apiKey, secretKey);
-    if (tokenOk) {
-        await loadExternalData(); // 加载题库
-        initCamera(); // 启动摄像头
-    }
+    await loadExternalData();
+    initCamera();
 }
-
-// 页面加载时恢复缓存的Key
-window.addEventListener('load', () => {
-    const cachedKey = localStorage.getItem('baidu_api_key');
-    const cachedSecret = localStorage.getItem('baidu_secret_key');
-    if (cachedKey) document.getElementById('apiKey').value = cachedKey;
-    if (cachedSecret) document.getElementById('secretKey').value = cachedSecret;
-});
 </script>
 </body>
 </html>
