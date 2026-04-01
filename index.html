@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>开卷秒查宝</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="./data.js"></script>
+    <style>
+        body { -webkit-tap-highlight-color: transparent; }
+        .pt-safe { padding-top: env(safe-area-inset-top); }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        /* 针对考试优化的快速点击态 */
+        .tap-active:active { transform: scale(0.96); background-color: #f1f5f9; }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 h-screen flex flex-col overflow-hidden">
+
+    <header class="bg-white shadow-sm pt-safe pb-3 px-4 z-50 flex items-center justify-between">
+        <div class="flex items-center">
+            <button id="back-btn" onclick="showDashboard()" class="hidden mr-3 text-blue-600 font-bold bg-blue-50 px-3 py-1 rounded-lg italic">← 选分类</button>
+            <h1 id="page-title" class="text-lg font-black text-slate-700 uppercase">分类导航</h1>
+        </div>
+        <span id="res-count" class="text-[10px] bg-slate-100 text-slate-500 px-2 py-1 rounded-full font-mono">359 TOTAL</span>
+    </header>
+
+    <main id="main-scroll" class="flex-1 overflow-y-auto p-3">
+        
+        <div id="dashboard" class="space-y-6">
+            </div>
+
+        <div id="results-list" class="hidden space-y-3 pb-20">
+            </div>
+
+    </main>
+
+    <script>
+        // 核心配置：定义你的大类颜色，考试时一眼扫过去就能定位
+        const categoryConfig = {
+            '飞行运行': 'border-blue-500 text-blue-600',
+            '应急处置': 'border-rose-500 text-rose-600',
+            '急救医学': 'border-emerald-500 text-emerald-600',
+            '机上设备': 'border-amber-500 text-amber-600',
+            '野外求生': 'border-purple-500 text-purple-600'
+        };
+
+        function showDashboard() {
+            document.getElementById('dashboard').classList.remove('hidden');
+            document.getElementById('results-list').classList.add('hidden');
+            document.getElementById('back-btn').classList.add('hidden');
+            document.getElementById('page-title').innerText = "分类导航";
+            document.getElementById('main-scroll').scrollTo(0,0);
+        }
+
+        function renderDashboard() {
+            const dashboard = document.getElementById('dashboard');
+            // 获取所有大类
+            const categories = [...new Set(rawQuestionBank.map(q => q.category))];
+            
+            dashboard.innerHTML = categories.map(cat => {
+                // 获取该大类下所有的细分小类
+                const subs = [...new Set(rawQuestionBank.filter(q => q.category === cat).map(q => q.subCategory))];
+                const colorClass = categoryConfig[cat] || 'border-slate-500 text-slate-600';
+                
+                return `
+                    <div class="bg-white rounded-2xl p-4 shadow-sm border-t-4 ${colorClass.split(' ')[0]}">
+                        <h3 class="font-black text-sm mb-3 opacity-70">${cat}</h3>
+                        <div class="grid grid-cols-2 gap-2">
+                            ${subs.map(sub => `
+                                <button onclick="renderList('${cat}', '${sub}')" 
+                                        class="tap-active bg-slate-50 border border-slate-100 p-3 rounded-xl text-left">
+                                    <div class="text-xs font-bold text-slate-700 leading-tight">${sub || '未分类'}</div>
+                                    <div class="text-[9px] text-slate-400 mt-1">${rawQuestionBank.filter(q => q.category === cat && q.subCategory === sub).length} 题</div>
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderList(cat, sub) {
+            const list = document.getElementById('results-list');
+            const filtered = rawQuestionBank.filter(q => q.category === cat && q.subCategory === sub);
+            
+            document.getElementById('page-title').innerText = sub;
+            document.getElementById('back-btn').classList.remove('hidden');
+            document.getElementById('dashboard').classList.add('hidden');
+            list.classList.remove('hidden');
+
+            list.innerHTML = filtered.map(item => `
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+                    <div class="text-[10px] text-slate-400 font-mono mb-2">#${item.id} · ${item.src}</div>
+                    <div class="text-slate-800 font-bold leading-relaxed mb-3">${item.q}</div>
+                    <div class="bg-blue-50 border border-blue-100 p-3 rounded-lg">
+                        <div class="text-[9px] text-blue-400 font-black uppercase tracking-widest mb-1">Answer</div>
+                        <div class="text-blue-700 font-black text-lg">${item.a}</div>
+                    </div>
+                </div>
+            `).join('');
+            document.getElementById('main-scroll').scrollTo(0,0);
+        }
+
+        window.onload = () => {
+            if (typeof rawQuestionBank !== 'undefined') {
+                renderDashboard();
+                document.getElementById('res-count').innerText = `${rawQuestionBank.length} QUES`;
+            }
+        };
+    </script>
+</body>
+</html>
